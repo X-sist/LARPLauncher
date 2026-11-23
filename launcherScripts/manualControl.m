@@ -9,15 +9,22 @@ function manualControl(aimServo, firingServo, stepper, a, fireButton, settings)
     stepper.setSpeed(0);
     stepper.startrunSpeed();
     fireButton.enableCapture(true);
+    disp('[Player] Hold a direction to aim. Release Fire, then press it to shoot.');
+    reportedReady = false;
 
     while true
         % The Arduino latches taps that finish between MATLAB reads.
-        newShots = fireButton.takePresses();
+        [newShots, ~, ready] = fireButton.takePresses();
         if newShots > 0
             fireButton.enableCapture(false);
             stepper.stoprun();
+            disp('[Player] Fresh Fire press accepted. Shooting.');
             fireBall(firingServo, settings);
             return
+        end
+        if ready && ~reportedReady
+            disp('[Player] READY: press Fire once to shoot.');
+            reportedReady = true;
         end
 
         left = readDigitalPin(a, settings.buttonPins{1}) == settings.pressedValue;

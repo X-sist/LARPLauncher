@@ -1,5 +1,5 @@
 classdef FireButton < matlabshared.addon.LibraryBase
-    % Collect short button presses between MATLAB input reads.
+    % Capture one debounced press after a stable release in each enabled phase.
     properties (Access = protected, Constant)
         LibraryName = 'FireButton/FireButton'
         DependentLibraries = {}
@@ -23,13 +23,19 @@ classdef FireButton < matlabshared.addon.LibraryBase
         end
 
         function enableCapture(obj, enabled)
+            % Enabling starts a new phase; disabling discards pending input.
             sendCommand(obj, obj.LibraryName, obj.SetEnabled, uint8(enabled));
         end
 
-        function [count, level] = takePresses(obj)
+        function [count, level, ready] = takePresses(obj)
             response = sendCommand(obj, obj.LibraryName, obj.ReadPresses, uint8([]));
+            if numel(response) ~= 3
+                error('FireButton:FirmwareVersion', ...
+                    'FireButton firmware is outdated. Restart mainControl to rebuild the Arduino server.');
+            end
             count = double(response(1));
             level = double(response(2));
+            ready = logical(response(3));
         end
     end
 end
