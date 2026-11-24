@@ -1,68 +1,79 @@
 function goalDetected = detectGoal(cameraInput, time)
-    % TODO Watch cameraInput for up to time seconds and return the result.
-   % validateattributes(time, {'numeric'}, {'scalar', 'integer', 'nonnegative', 'finite'});
+% DETECTGOAL Waits `time` seconds, then checks whether a 3rd fiducial has
+% appeared on the target board using majority-vote consensus and cluster gating.
 
-   % fprintf('[Goal] Detection placeholder for %d seconds returns false.\n', time);
+    if nargin < 2 || isempty(time)
+        time = 5; % Default wait time in seconds
+    end
 
-   % CHECKTHIRDFIDUCIAL Waits waitTime seconds, then verifies whether a 3rd
-   % fiducial has appeared on the target board. Returns logical true/false.
-   % Uses multi-frame unanimous consensus + spatial gating to prevent false positives.
+    % Physical board constants (must match detectDistanceAngle.m)
+    Real_Spacing_Inches = 7.75;
+    W_real_inches = 1;
 
-   if nargin < 2 || isempty(time)
-       time = 5; % Default wait time in seconds
-   end
+    % Consensus parameters: 3 out of 5 frames (tolerates brief flicker, blocks 1-frame glare)
+    numFrames = 5;
+    requiredConfirmations = 3;
+    frameInterval = 0.25;
 
-   % Physical board constants (must match acquireTarget.m)
-   Real_Spacing_Inches = 7.75;
-   W_real_inches = 1;
+    cam = cameraInput;
+    fprintf('Waiting %.1f seconds for 3rd fiducial...\n', time);
+    pause(time);
 
-   % Consensus parameters
-   numFrames = 3;         % Number of consecutive frames to verify
-   frameInterval = 0.25;  % Seconds between verification frames
+    confirmations = 0;
 
-   % Initialize camera first so exposure stabilizes during the wait period
-   cam = cameraInput;
-   fprintf('Waiting %.1f seconds for 3rd fiducial...\n', time);
-   pause(time);
+    for f = 1:numFrames
+        Im = snapshot(cam);
+        SortedTargets = detectFiducials(Im);
+        rawCount = length(SortedTargets);
+        bestCluster = 0;
 
-   confirmations = 0;
+        if rawCount >= 3
+            % Test each detected dot as a potential board anchor so a single
+            % bright background reflection cannot invalidate the real board
+            for anchor = 1:rawCount
+                AnchorDot = SortedTargets(anchor);
+                est_dot_diam_px = 2 * sqrt(AnchorDot.Area / pi);
 
-   for f = 1:numFrames
-       Im = snapshot(cam);
-       SortedTargets = detectFiducials(Im);
+                % Slightly wider 3.0x margin to absorb threshold erosion on smaller dots
+                max_allowed_px_spacing = (Real_Spacing_Inches / W_real_inches) * est_dot_diam_px * 3.0;
 
-       if length(SortedTargets) >= 3
-           % Spatial check: count how many detections belong to the target board
-           PrimaryDot = SortedTargets(1);
-           est_dot_diam_px = 2 * sqrt(PrimaryDot.Area / pi);
-           max_allowed_px_spacing = (Real_Spacing_Inches / W_real_inches) * est_dot_diam_px * 2.5;
+                clusterCount = 0;
+                for k = 1:rawCount
+                    if norm(SortedTargets(k).Centroid - AnchorDot.Centroid) <= max_allowed_px_spacing
+                        clusterCount = clusterCount + 1;
+                    end
+                end
 
-           validBoardDots = 1; % PrimaryDot itself
-           for k = 2:length(SortedTargets)
-               if norm(SortedTargets(k).Centroid - PrimaryDot.Centroid) <= max_allowed_px_spacing
-                   validBoardDots = validBoardDots + 1;
-               end
-           end
+                if clusterCount > bestCluster
+                    bestCluster = clusterCount;
+                end
+            end
 
-           if validBoardDots >= 3
-               confirmations = confirmations + 1;
-           end
-       end
+            if bestCluster >= 3
+                confirmations = confirmations + 1;
+            end
+        end
 
-       if f < numFrames
-           pause(frameInterval);
-       end
-   end
+        fprintf('  Frame %d/%d -> Raw dots: %d | Max board cluster: %d\n', ...
+            f, numFrames, rawCount, bestCluster);
 
-   % Release camera immediately
-   clear cam;
+        % Early exit once consensus is reached
+        if confirmations >= requiredConfirmations
+            break;
+        end
 
-   % Require unanimous confirmation across all frames to prevent false positives
-   goalDetected = (confirmations == numFrames);
+        if f < numFrames
+            pause(frameInterval);
+        end
+    end
 
-   if goalDetected
-       fprintf('Verification PASSED: 3rd fiducial confirmed (%d/%d frames).\n', confirmations, numFrames);
-   else
-       fprintf('Verification FAILED: 3rd fiducial not confirmed (%d/%d frames).\n', confirmations, numFrames);
-   end
+    goalDetected = (confirmations >= requiredConfirmations);
+
+    if goalDetected
+        fprintf('Verification PASSED: 3rd fiducial confirmed (%d/%d required).\n', ...
+            confirmations, requiredConfirmations);
+    else
+        fprintf('Verification FAILED: 3rd fiducial not confirmed (%d/%d required).\n', ...
+            confirmations, requiredConfirmations);
+    end
 end
