@@ -14,6 +14,12 @@ codegen/
 *_ert_rtw/
 *_grt_rtw/
 
+# MATLAB project definitions, archives, and metadata
+*.prj
+*.mlproj
+resources/project/
+.SimulinkProject/
+
 # Editor temporary files
 *.swp
 *.swo

@@ -13,7 +13,7 @@ public:
 
     void loop() override
     {
-        if (enabled) {
+        if (state == WaitingForRelease || state == WaitingForPress) {
             sample();
         }
     }
@@ -23,16 +23,17 @@ public:
         if (command == Configure && length == 2) {
             pin = data[0];
             pressedLevel = data[1];
-            enabled = false;
+            state = Disabled;
             pressCount = 0;
         } else if (command == SetEnabled && length == 1) {
-            enabled = data[0] != 0;
+            // Each phase starts empty and must see a stable release first.
+            state = data[0] ? WaitingForRelease : Disabled;
             pressCount = 0;
-            wasPressed = digitalRead(pin) == pressedLevel;
-            armed = !wasPressed;
+            releasedAt = micros();
+            pressPending = false;
         } else if (command == ReadPresses) {
             byte level = sample();
-            byte response[] = {pressCount, level};
+            byte response[] = {pressCount, level, byte(state == WaitingForPress)};
             pressCount = 0;
             sendResponseMsg(command, response, sizeof(response));
             return;
@@ -42,38 +43,42 @@ public:
 
 private:
     enum Command : byte { Configure = 1, SetEnabled = 2, ReadPresses = 3 };
-    static constexpr unsigned long ReleaseDebounceMicros = 40000;
+    enum State : byte { Disabled, WaitingForRelease, WaitingForPress, Complete };
+    static constexpr unsigned long ReleaseDebounceMicros = 60000;
+    static constexpr unsigned long PressDebounceMicros = 20000;
 
     byte pin = 0;
     byte pressedLevel = HIGH;
     byte pressCount = 0;
-    bool enabled = false;
-    bool armed = false;
-    bool wasPressed = false;
+    State state = Disabled;
+    bool pressPending = false;
     unsigned long releasedAt = 0;
+    unsigned long pressedAt = 0;
 
     byte sample()
     {
         byte level = digitalRead(pin);
-        if (!enabled) {
-            return level;
-        }
-
         bool pressed = level == pressedLevel;
-        if (pressed) {
-            // Latch the first sample. Debounce the release before rearming.
-            if (armed && pressCount < 255) {
-                ++pressCount;
-            }
-            armed = false;
-        } else if (!armed) {
-            unsigned long now = micros();
-            if (wasPressed) {
+        unsigned long now = micros();
+
+        if (state == WaitingForRelease) {
+            if (pressed) {
                 releasedAt = now;
+            } else if (now - releasedAt >= ReleaseDebounceMicros) {
+                state = WaitingForPress;
             }
-            armed = now - releasedAt >= ReleaseDebounceMicros;
+        } else if (state == WaitingForPress) {
+            if (!pressed) {
+                pressPending = false;
+            } else if (!pressPending) {
+                pressedAt = now;
+                pressPending = true;
+            } else if (now - pressedAt >= PressDebounceMicros) {
+                // One event per phase, retained until MATLAB reads it.
+                pressCount = 1;
+                state = Complete;
+            }
         }
-        wasPressed = pressed;
         return level;
     }
 };

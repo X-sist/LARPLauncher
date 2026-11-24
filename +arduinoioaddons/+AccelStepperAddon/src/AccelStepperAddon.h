@@ -96,15 +96,15 @@ class AccelStepperAddon : public LibraryBase
 {
 public:
 	// Allocate memory for multiple steppers
-	AccelStepper* steppers[MAX_NUMBER_STEPPERS];
+	AccelStepper* steppers[MAX_NUMBER_STEPPERS] = {};
 
 public:
 	// Steppers in 'run()' mode
-	bool runEnabled[MAX_NUMBER_STEPPERS];
+	bool runEnabled[MAX_NUMBER_STEPPERS] = {};
 
 public:
 	// Steppers in 'runSpeed()' mode
-	bool runSpeedEnabled[MAX_NUMBER_STEPPERS];
+	bool runSpeedEnabled[MAX_NUMBER_STEPPERS] = {};
 
 public:
 	// Constructor
@@ -122,11 +122,11 @@ public:
 	{
 		for (int i = 0; i < MAX_NUMBER_STEPPERS; i++)
 		{
-			if (runEnabled[i])
+			if (steppers[i] && runEnabled[i])
 			{
 				steppers[i]->run(); // Call run() method from Stepper Library
 			}
-			else if (runSpeedEnabled[i])
+			else if (steppers[i] && runSpeedEnabled[i])
 			{
 				steppers[i]->runSpeed(); // Call runSpeed() method from Stepper Library
 			}
